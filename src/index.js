@@ -1,6 +1,7 @@
 import './scss/styles.scss';
 
 import { Canvas } from './canvas';
+import { sample } from './data';
 
 const statuses = {
   ok: "#7FFF00",
@@ -17,26 +18,10 @@ const nodeHeight = 100;
 const padding = 50;
 const arrowLength = 30;
 const arrowPaddingStart = 20;
-const arrowPaddingEnd = 40;
+const arrowPaddingEnd = 20;
 
 function initApplication() {
-  const dag = new DAG();
-
-  const pod = new Node("pod", statuses.ok, edges.explicit);
-
-  const replicaSet = new Node("replicaSet", statuses.ok, edges.explicit);
-  replicaSet.addChild(pod);
-
-  const deployment = new Node("deployment", statuses.ok, edges.explicit);
-  deployment.addChild(replicaSet);
-
-  const service = new Node("service", statuses.degraded, edges.implicit);
-  service.addChild(deployment);
-
-  const ingress1 = new Node("ingress 1", statuses.ok, edges.explicit);
-  ingress1.addChild(service);
-
-  dag.addRoot(ingress1);
+  const dag = new DAG(sample);
 
   dag.draw();
 }
@@ -48,8 +33,37 @@ document.onreadystatechange = () => {
 };
 
 class DAG {
-  constructor() {
+  constructor(data) {
+    let scratchNodes = {};
+    let hasParent = {};
+
     this.nodes = [];
+
+    for (const [key, value] of Object.entries(data.objects)) {
+      scratchNodes[key] = new Node(key, value.name, value.status);
+    }
+
+    // find roots
+    for (const [_, value] of Object.entries(data.dag)) {
+      for (const object of value) {
+        hasParent[object.node] = true;
+      }
+    }
+
+    for (const [key, value] of Object.entries(data.objects)) {
+      if (hasParent[key] == undefined) {
+        this.addRoot(scratchNodes[key]);
+      }
+
+      scratchNodes[key].status = statuses[value.status];
+    }
+
+    for (const [key, value] of Object.entries(data.dag)) {
+      for (const object of value) {
+        scratchNodes[key].addChild(scratchNodes[object.node], object.edge);
+        scratchNodes[object.node].edge = edges[object.edge];
+      }
+    }
   }
 
   addRoot(node) {
@@ -85,6 +99,8 @@ class DAG {
     canvasHeight += rows.length * nodeHeight;
     canvasHeight += (rows.length - 1) * arrowHeight;
 
+    let positions = {};
+
     const canvas = new Canvas(canvasWidth, canvasHeight);
 
     let end = 0;
@@ -97,6 +113,8 @@ class DAG {
         nodeY = end + arrowHeight + nodeHeight / 2;
       }
 
+
+
       end = nodeY + nodeHeight / 2;
 
       for (const colIndex of rows[rowIndex].keys()) {
@@ -104,13 +122,25 @@ class DAG {
         let nodeX =
           padding + padding * colIndex + colIndex * nodeWidth + nodeWidth / 2;
 
-        canvas.drawCircle(node.name, nodeX, nodeY, nodeWidth, node.status);
+        positions[node.id] = {
+          x: nodeX,
+          y: nodeY,
+          label: node.name,
+          status: node.status,
+          children: node.edges,
+        };
+      }
+    }
 
-        if (rowIndex < rows.length - 1) {
-          const arrowBegin = end + arrowPaddingStart;
-          const arrowEnd = arrowBegin + arrowLength + arrowPaddingEnd;
-          canvas.drawArrow(nodeX, arrowBegin, nodeX, arrowEnd, node.edge);
-        }
+    for (const pos of Object.values(positions)) {
+      canvas.drawCircle(pos.label, pos.x, pos.y, nodeWidth, pos.status);
+
+      for (const [key, value] of Object.entries(pos.children)) {
+        const child = positions[key];
+        const startY = pos.y + nodeHeight / 2 + arrowPaddingStart;
+        const endY = child.y - arrowPaddingEnd - nodeHeight / 2;
+
+        canvas.drawArrow(pos.x, startY, child.x, endY, edges[value]);
       }
     }
   }
@@ -128,15 +158,19 @@ class DAG {
 }
 
 class Node {
-  constructor(name, status, edge) {
+  constructor(id, name, status, edge) {
+    this.id = id;
     this.name = name;
     this.edge = edge;
     this.status = status;
     this._children = [];
+    this.edges = {};
   }
 
-  addChild(childNode) {
+  addChild(childNode, edgeType) {
     this._children.push(childNode);
+    childNode.parent = this.id;
+    this.edges[childNode.id] = edgeType;
   }
 
   childrenRows() {

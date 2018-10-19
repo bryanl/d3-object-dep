@@ -6,7 +6,7 @@ export class Canvas {
     this._svg = d3
       .select("body")
       .append("svg")
-      .attr("width", width)
+      .attr("width", 400)
       .attr("height", height)
       .style("padding", "10px")
       .style("background-color", "#eee");
@@ -40,7 +40,7 @@ export class Canvas {
     this._svg
       .append("text")
       .attr("x", cx)
-      .attr("y", cy)
+      .attr("y", cy + width / 2 + 15)
       .attr("text-anchor", "middle")
       .text(function() {
         return labelText;
